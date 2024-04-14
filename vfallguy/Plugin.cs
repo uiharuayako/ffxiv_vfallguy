@@ -20,11 +20,13 @@ public sealed class Plugin : IDalamudPlugin
         Dalamud = dalamud;
         dalamud.UiBuilder.DisableAutomaticUiHide = true;
         Dalamud.UiBuilder.Draw += WindowSystem.Draw;
+        MiniHacks.Init();
         //Dalamud.UiBuilder.OpenConfigUi += () => _wndConfig.IsOpen = true;
     }
 
     public void Dispose()
     {
+        MiniHacks.Dispose();
         WindowSystem.RemoveAllWindows();
         _wnd.Dispose();
     }

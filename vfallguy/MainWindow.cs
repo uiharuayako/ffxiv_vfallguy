@@ -6,6 +6,7 @@ using ImGuiNET;
 using System;
 using System.Linq;
 using System.Numerics;
+using Dalamud.Interface.Colors;
 
 namespace vfallguy;
 
@@ -29,9 +30,11 @@ public class MainWindow : Window, IDisposable
     private int _numPlayersInDuty;
     private float _autoJoinDelay = 0.5f;
     private float _autoLeaveDelay = 3;
+    private float _hackMoveSpeed = 1;
     private int _autoLeaveLimit = 1;
+    private bool _enableHacks = false;
 
-    public MainWindow() : base("vfailguy")
+    public MainWindow() : base("vfailguy with MiniHacks")
     {
         ShowCloseButton = false;
         RespectCloseHotkey = false;
@@ -57,6 +60,16 @@ public class MainWindow : Window, IDisposable
         _movementDirection = _movementDirection.NormalizedXZ();
 
         IsOpen = Service.ClientState.TerritoryType is 1165 or 1197;
+        if (!IsOpen && _enableHacks)
+        {
+            MiniHacks.Disable();
+            _enableHacks = false;
+        }
+
+        if (IsOpen && !_enableHacks)
+        {
+            _enableHacks = true;
+        }
 
         UpdateMap();
         UpdateAutoJoin();
@@ -68,43 +81,50 @@ public class MainWindow : Window, IDisposable
 
     public unsafe override void Draw()
     {
-        if (ImGui.Button("Queue"))
+        ImGui.TextColored(ImGuiColors.HealerGreen, "vfallguy插件开源免费，请不要以任何方式付费购买，如果你身边有人买了，请嘲笑他");
+        ImGui.TextColored(ImGuiColors.DPSRed, "闲鱼小店：文-两仪式，倒卖vfailguy原版插件，看到记得举报");
+        ImGui.TextColored(ImGuiColors.HealerGreen, "如果进本功能没反应，请手动进一次本再退");
+
+        if (ImGui.Button("立即排糖豆人本"))
             _automation.RegisterForDuty();
         ImGui.SameLine();
-        if (ImGui.Button("Leave"))
+        if (ImGui.Button("退本"))
             _automation.LeaveDuty();
         ImGui.SameLine();
-        ImGui.TextUnformatted($"Num players in duty: {_numPlayersInDuty} (autoleave: {(_autoLeaveAt == DateTime.MaxValue ? "never" : $"in {(_autoLeaveAt - _now).TotalSeconds:f1}s")})");
+        ImGui.TextUnformatted(
+            $"本里人数: {_numPlayersInDuty} ({(_autoLeaveAt == DateTime.MaxValue ? "无退本计划" : $"在 {(_autoLeaveAt - _now).TotalSeconds:f1}s后自动退本")})");
 
-        ImGui.Checkbox("Auto register", ref  _autoJoin);
+        ImGui.Checkbox("自动排糖豆人本", ref _autoJoin);
         if (_autoJoin)
         {
             using (ImRaii.PushIndent())
             {
-                ImGui.SliderFloat("Delay###j", ref _autoJoinDelay, 0, 10);
+                ImGui.SliderFloat("延迟（秒）###j", ref _autoJoinDelay, 0, 10);
             }
         }
-        ImGui.Checkbox("Auto leave if not solo", ref _autoLeaveIfNotSolo);
+
+        ImGui.Checkbox("不是单人就退出", ref _autoLeaveIfNotSolo);
         if (_autoLeaveIfNotSolo)
         {
             using (ImRaii.PushIndent())
             {
-                ImGui.SliderFloat("Delay###l", ref _autoLeaveDelay, 0, 10);
-                ImGui.SliderInt("Limit", ref _autoLeaveLimit, 1, 23);
+                ImGui.SliderFloat("延迟（秒）###l", ref _autoLeaveDelay, 0, 10);
+                ImGui.SliderInt("当多于X人时退出", ref _autoLeaveLimit, 1, 23);
             }
         }
-        ImGui.Checkbox("Show AOE zones", ref _showAOEs);
-        ImGui.Checkbox("Show AOE debug text", ref _showAOEText);
-        ImGui.Checkbox("Show proposed path", ref _showPathfind);
+
+        ImGui.Checkbox("显示AOE范围", ref _showAOEs);
+        ImGui.Checkbox("显示AOE Debug消息", ref _showAOEText);
+        ImGui.Checkbox("显示推荐路线", ref _showPathfind);
 
         if (_map != null)
         {
             var strats = _map.Strats();
             if (strats.Length > 0)
                 ImGui.TextUnformatted(strats);
-            ImGui.TextUnformatted($"Pos: {_map.PlayerPos}");
-            ImGui.TextUnformatted($"Path: {_map.PathSkip}-{_map.Path.Count}");
-            ImGui.TextUnformatted($"Speed: {_movementSpeed}");
+            ImGui.TextUnformatted($"位置: {_map.PlayerPos}");
+            ImGui.TextUnformatted($"路径: {_map.PathSkip}-{_map.Path.Count}");
+            ImGui.TextUnformatted($"速度: {_movementSpeed}");
 
             //foreach (var aoe in _map.AOEs.Where(aoe => aoe.NextActivation != default))
             //{
@@ -112,6 +132,31 @@ public class MainWindow : Window, IDisposable
             //    using (ImRaii.PushColor(ImGuiCol.Text, nextActivation < 0 ? 0xff0000ff : 0xffffffff))
             //        ImGui.TextUnformatted($"{aoe.Type} R{aoe.R1} @ {aoe.Origin}: activate in {nextActivation:f3}, repeat={aoe.Repeat}, seqd={aoe.SeqDelay}");
             //}
+        }
+
+        if (ImGui.CollapsingHeader("底裤功能（不是单人时开，后果自负！）"))
+        {
+            if (ImGui.InputFloat("移速设置", ref _hackMoveSpeed))
+            {
+                if (_hackMoveSpeed > 5) _hackMoveSpeed = 5;
+            }
+
+            if (ImGui.Button("应用移速设置"))
+            {
+                MiniHacks.MoveSpeed(_hackMoveSpeed);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("恢复移速"))
+            {
+                _hackMoveSpeed = 1;
+                MiniHacks.MoveSpeed(_hackMoveSpeed);
+            }
+
+            if (ImGui.Checkbox("防击退", ref MiniHacks.EnableAntiKick))
+            {
+                MiniHacks.SetAntiKick(MiniHacks.EnableAntiKick);
+            }
         }
     }
 
@@ -152,7 +197,9 @@ public class MainWindow : Window, IDisposable
 
     private void UpdateAutoJoin()
     {
-        bool wantAutoJoin = _autoJoin && _automation.Idle && IsOpen && Service.ClientState.TerritoryType == 1197 && !Service.Condition[ConditionFlag.WaitingForDutyFinder] && !Service.Condition[ConditionFlag.BetweenAreas];
+        bool wantAutoJoin = _autoJoin && _automation.Idle && IsOpen && Service.ClientState.TerritoryType == 1197 &&
+                            !Service.Condition[ConditionFlag.WaitingForDutyFinder] &&
+                            !Service.Condition[ConditionFlag.BetweenAreas];
         if (!wantAutoJoin)
         {
             _autoJoinAt = DateTime.MaxValue;
@@ -172,7 +219,8 @@ public class MainWindow : Window, IDisposable
 
     private void UpdateAutoLeave()
     {
-        _numPlayersInDuty = Service.ClientState.TerritoryType == 1165 && Service.Condition[ConditionFlag.BoundByDuty] && !Service.Condition[ConditionFlag.BetweenAreas]
+        _numPlayersInDuty = Service.ClientState.TerritoryType == 1165 && Service.Condition[ConditionFlag.BoundByDuty] &&
+                            !Service.Condition[ConditionFlag.BetweenAreas]
             ? Service.ObjectTable.Count(o => o.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player)
             : 0;
         bool wantAutoLeave = _autoLeaveIfNotSolo && _numPlayersInDuty > _autoLeaveLimit && _automation.Idle;
@@ -182,7 +230,7 @@ public class MainWindow : Window, IDisposable
         }
         else if (_autoLeaveAt == DateTime.MaxValue)
         {
-            Service.Log.Debug($"Auto-leaving in {_autoLeaveDelay:f2}s...");
+            Service.Log.Debug($"在 {_autoLeaveDelay:f2}s 后自动退本");
             _autoLeaveAt = _now.AddSeconds(_autoLeaveDelay);
         }
         else if (_now >= _autoLeaveAt)
@@ -217,16 +265,21 @@ public class MainWindow : Window, IDisposable
             var nextActivation = (aoe.NextActivation - _now).TotalSeconds;
             if (nextActivation < 2.5f)
             {
-                var (aoeEnter, aoeExit) = _movementSpeed > 0 ? aoe.Intersect(_map.PlayerPos, _movementDirection) : aoe.Contains(_map.PlayerPos) ? (0, float.PositiveInfinity) : (float.NaN, float.NaN);
-                var delay = !float.IsNaN(aoeEnter) ? aoe.ActivatesBetween(_now, aoeEnter * Map.InvSpeed - 0.1f, aoeExit * Map.InvSpeed + 0.1f) : 0;
+                var (aoeEnter, aoeExit) = _movementSpeed > 0 ? aoe.Intersect(_map.PlayerPos, _movementDirection) :
+                    aoe.Contains(_map.PlayerPos) ? (0, float.PositiveInfinity) : (float.NaN, float.NaN);
+                var delay = !float.IsNaN(aoeEnter)
+                    ? aoe.ActivatesBetween(_now, aoeEnter * Map.InvSpeed - 0.1f, aoeExit * Map.InvSpeed + 0.1f)
+                    : 0;
                 var color = delay > 0 ? 0xff0000ff : 0xff00ffff;
                 if (_showAOEs)
                 {
                     aoe.Draw(_drawer, color);
                 }
+
                 if (_showAOEText)
                 {
-                    var text = $"{nextActivation:f3} [{aoeEnter * Map.InvSpeed:f2}-{aoeExit * Map.InvSpeed:f2}, {delay:f2}]";
+                    var text =
+                        $"{nextActivation:f3} [{aoeEnter * Map.InvSpeed:f2}-{aoeExit * Map.InvSpeed:f2}, {delay:f2}]";
                     var dir = (aoe.Origin - _map.PlayerPos).NormalizedXZ();
                     var (enter, exit) = aoe.Intersect(_map.PlayerPos, dir);
                     var textPos = _map.PlayerPos + dir * MathF.Max(enter, 0);
